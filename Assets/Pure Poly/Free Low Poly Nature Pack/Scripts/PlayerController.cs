@@ -28,7 +28,7 @@ public class PlayerController : MonoBehaviour
     private int count;
 
     // UI text component to display count of "PickUp" objects collected.
-    public TMP_Text countText;
+    public TextMeshProUGUI countText;
     // Start is called before the first frame update.
     void Start()
     {
@@ -56,7 +56,6 @@ public class PlayerController : MonoBehaviour
     // Function to update the displayed count of "PickUp" objects collected.
     void SetCountText()
     {
-        // Update the count text with the current count.
-        countText.text = "Count: " + count.ToString();
+        countText.text = "Coins: " + count.ToString();
     }
 }
