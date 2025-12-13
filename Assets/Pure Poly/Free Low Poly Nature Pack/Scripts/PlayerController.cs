@@ -1,45 +1,173 @@
-﻿using UnityEngine;
+﻿using System.Collections;
+using UnityEngine;
 using UnityEngine.InputSystem;
+
+[RequireComponent(typeof(Rigidbody))]
+[RequireComponent(typeof(Animator))]
 public class PlayerController : MonoBehaviour
 {
-    // Rigidbody of the player.
-    private Rigidbody rb;
-    // Movement along X and Y axes.
-    private float movementX;
-    private float movementY;
-    // Speed at which the player moves.
-    public float speed = 0;
-    // Start is called before the first frame update.
-    void Start()
+    [Header("Forward Movement")]
+    public float forwardSpeed = 8f;
+
+    [Header("Lane Settings")]
+    public float laneOffset = 2.5f;      // distance between lanes
+    public float laneSwitchSpeed = 12f;
+
+    [Header("Jump Settings")]
+    public float jumpForce = 6.5f;
+
+    [Header("Slide Settings")]
+    public float slideDuration = 1.0f;
+
+    [Header("Ground Check")]
+    public LayerMask groundLayer;
+    public float groundCheckDistance = 0.2f;
+
+    Rigidbody rb;
+    Animator animator;
+
+    int currentLane = 0; // -1, 0, +1
+    float startX;
+    float targetX;
+
+    bool isSliding = false;
+    bool isDead = false;
+
+    /* =========================
+       INITIALIZATION
+       ========================= */
+
+    void Awake()
     {
-        // Get and store the Rigidbody component attached to the player.
         rb = GetComponent<Rigidbody>();
+        animator = GetComponent<Animator>();
+
+        startX = transform.position.x;
+        targetX = startX;
+
+        rb.freezeRotation = true;
+        rb.useGravity = true;
+        rb.isKinematic = false;
     }
-    // This function is called when a move input is detected.
-    void OnMove(InputValue movementValue)
+
+    /* =========================
+       INPUT
+       ========================= */
+
+    void OnMove(InputValue value)
     {
-        // Convert the input value into a Vector2 for movement.
-        Vector2 movementVector = movementValue.Get<Vector2>();
-        // Store the X and Y components of the movement.
-        movementX = movementVector.x;
-        movementY = movementVector.y;
+        if (isDead) return;
+
+        float x = value.Get<Vector2>().x;
+
+        if (x > 0.5f) ChangeLane(1);
+        else if (x < -0.5f) ChangeLane(-1);
     }
-    // FixedUpdate is called once per fixed frame-rate frame.
-    private void FixedUpdate()
+
+    void OnJump()
     {
-        // Create a 3D movement vector using the X and Y inputs.
-        Vector3 movement = new Vector3(movementX, 0.0f, movementY);
-        // Apply force to the Rigidbody to move the player.
-        rb.AddForce(movement * speed);
+        if (isDead) return;
+        if (!IsGrounded()) return;
+
+        // Reset vertical velocity then jump
+        rb.velocity = new Vector3(rb.velocity.x, 0f, rb.velocity.z);
+        rb.AddForce(Vector3.up * jumpForce, ForceMode.VelocityChange);
+
+        animator.SetTrigger("jumpTrigger");
     }
-    // Detect collisions with collectibles.
-    void OnTriggerEnter(Collider other)
+
+    void OnSlide()
     {
-        // Check if the object the player collided with has the "PickUp" tag.
-        if (other.gameObject.CompareTag("PickUp"))
+        if (isDead || isSliding || !IsGrounded()) return;
+        StartCoroutine(SlideRoutine());
+    }
+
+    /* =========================
+       LANE SWITCHING
+       ========================= */
+
+    void ChangeLane(int direction)
+    {
+        int newLane = Mathf.Clamp(currentLane + direction, -1, 1);
+        if (newLane == currentLane) return;
+
+        currentLane = newLane;
+        targetX = startX + laneOffset * currentLane;
+    }
+
+    /* =========================
+       PHYSICS & ANIMATION
+       ========================= */
+
+    void FixedUpdate()
+    {
+        if (isDead) return;
+
+        /* ---- FORWARD RUNNING ---- */
+        Vector3 forwardMove = Vector3.forward * forwardSpeed * Time.fixedDeltaTime;
+
+        /* ---- LANE MOVEMENT (X only) ---- */
+        Vector3 pos = rb.position;
+        float newX = Mathf.Lerp(pos.x, targetX, Time.fixedDeltaTime * laneSwitchSpeed);
+
+        rb.MovePosition(new Vector3(newX, pos.y, pos.z) + forwardMove);
+
+        /* ---- ANIMATION STATES ---- */
+        bool grounded = IsGrounded();
+        animator.SetBool("isGrounded", grounded);
+        animator.SetFloat("verticalVelocity", rb.velocity.y);
+
+        if (!grounded && rb.velocity.y < -0.1f)
+            animator.SetBool("isFalling", true);
+        else
+            animator.SetBool("isFalling", false);
+    }
+
+    /* =========================
+       SLIDE LOGIC
+       ========================= */
+
+    IEnumerator SlideRoutine()
+    {
+        isSliding = true;
+        animator.SetBool("isSliding", true);
+
+        yield return new WaitForSeconds(slideDuration);
+
+        animator.SetBool("isSliding", false);
+        isSliding = false;
+    }
+
+    /* =========================
+       COLLISION → GAME OVER
+       ========================= */
+
+    void OnCollisionEnter(Collision collision)
+    {
+        if (collision.gameObject.CompareTag("Obstacle"))
         {
-            // Deactivate the collided object (making it disappear).
-            other.gameObject.SetActive(false);
+            Die();
         }
+    }
+
+    void Die()
+    {
+        if (isDead) return;
+
+        isDead = true;
+        animator.SetBool("isDead", true);
+
+        rb.velocity = Vector3.zero;
+        rb.isKinematic = true;
+    }
+
+    /* =========================
+       GROUND CHECK
+       ========================= */
+
+    bool IsGrounded()
+    {
+        Vector3 origin = transform.position + Vector3.up * 0.05f;
+        return Physics.Raycast(origin, Vector3.down, groundCheckDistance, groundLayer);
     }
 }
